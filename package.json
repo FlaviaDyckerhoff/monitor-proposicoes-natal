@@ -1,0 +1,12 @@
+{
+  "name": "monitor-proposicoes-natal",
+  "version": "1.0.0",
+  "description": "Monitor automático de matérias legislativas da Câmara Municipal de Natal",
+  "main": "monitor.js",
+  "scripts": {
+    "start": "node monitor.js"
+  },
+  "dependencies": {
+    "nodemailer": "^6.9.0"
+  }
+}
