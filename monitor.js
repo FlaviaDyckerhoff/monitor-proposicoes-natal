@@ -7,6 +7,13 @@ const EMAIL_SENHA = process.env.EMAIL_SENHA;
 const ARQUIVO_ESTADO = 'estado.json';
 const API_BASE = 'https://sapl.natal.rn.leg.br';
 
+function urlMateria(p) {
+  const detalhe = p.link_detail_backend || (p.id ? '/materia/' + p.id : '');
+  if (!detalhe) return '';
+  if (/^https?:\/\//i.test(detalhe)) return detalhe;
+  return API_BASE + detalhe;
+}
+
 function carregarEstado() {
   if (fs.existsSync(ARQUIVO_ESTADO)) {
     return JSON.parse(fs.readFileSync(ARQUIVO_ESTADO, 'utf8'));
@@ -33,14 +40,18 @@ async function enviarEmail(novas) {
 
   const linhas = Object.keys(porTipo).sort().map(tipo => {
     const header = `<tr><td colspan="4" style="padding:10px 8px 4px;background:#f0f4f8;font-weight:bold;color:#1a3a5c;font-size:13px;border-top:2px solid #1a3a5c">${tipo} — ${porTipo[tipo].length} matéria(s)</td></tr>`;
-    const rows = porTipo[tipo].map(p =>
-      `<tr>
-        <td style="padding:8px;border-bottom:1px solid #eee"><strong>${p.numero || '-'}/${p.ano || '-'}</strong></td>
+    const rows = porTipo[tipo].map(p => {
+      const numero = p.url
+        ? `<a href="${p.url}" style="color:#1a3a5c;text-decoration:none"><strong>${p.numero || '-'}/${p.ano || '-'}</strong></a>`
+        : `<strong>${p.numero || '-'}/${p.ano || '-'}</strong>`;
+
+      return `<tr>
+        <td style="padding:8px;border-bottom:1px solid #eee">${numero}</td>
         <td style="padding:8px;border-bottom:1px solid #eee;font-size:12px">${p.tipo || '-'}</td>
         <td style="padding:8px;border-bottom:1px solid #eee;font-size:12px;white-space:nowrap">${p.data || '-'}</td>
         <td style="padding:8px;border-bottom:1px solid #eee;font-size:12px">${p.ementa || '-'}</td>
-      </tr>`
-    ).join('');
+      </tr>`;
+    }).join('');
     return header + rows;
   }).join('');
 
@@ -146,6 +157,7 @@ function normalizarProposicao(p) {
     autor: '-', // SAPL não retorna autor inline — requereria chamada extra por matéria
     data,
     ementa: (p.ementa || '-').substring(0, 200),
+    url: urlMateria(p),
   };
 }
 
