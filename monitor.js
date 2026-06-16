@@ -1,11 +1,11 @@
 const fs = require('fs');
-const nodemailer = require('nodemailer');
 
 const EMAIL_DESTINO = process.env.EMAIL_DESTINO;
 const EMAIL_REMETENTE = process.env.EMAIL_REMETENTE;
 const EMAIL_SENHA = process.env.EMAIL_SENHA;
 const ARQUIVO_ESTADO = 'estado.json';
 const API_BASE = 'https://sapl.natal.rn.leg.br';
+const BASELINE_ONLY = process.env.BASELINE_ONLY === '1';
 
 function urlMateria(p) {
   const detalhe = p.link_detail_backend || (p.id ? '/materia/' + p.id : '');
@@ -46,6 +46,7 @@ function compararTiposEmail(a, b) {
 }
 
 async function enviarEmail(novas) {
+  const nodemailer = require('nodemailer');
   const transporter = nodemailer.createTransport({
     service: 'gmail',
     auth: { user: EMAIL_REMETENTE, pass: EMAIL_SENHA },
@@ -108,46 +109,88 @@ async function enviarEmail(novas) {
   console.log(`✅ Email enviado com ${novas.length} matérias novas.`);
 }
 
-async function buscarProposicoes() {
-  const hoje = new Date();
-  const ano = hoje.getFullYear();
-  const pageSize = 100;
-  let todasMateria = [];
-  let pagina = 1;
+function normalizarUrlApi(url) {
+  if (!url) return '';
+  return url.replace(/^http:\/\/sapl\.natal\.rn\.leg\.br/i, API_BASE);
+}
 
-  console.log(`🔍 Buscando matérias de ${ano}...`);
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
 
-  while (true) {
-    const url = `${API_BASE}/api/materia/materialegislativa/?ano=${ano}&page=${pagina}&page_size=${pageSize}&ordering=-id`;
-    console.log(`📄 Página ${pagina}...`);
+async function fetchJsonComRetry(url, tentativas = 3) {
+  let ultimoErro;
 
-    const response = await fetch(url, {
-      headers: {
-        'Accept': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  for (let tentativa = 1; tentativa <= tentativas; tentativa++) {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        }
+      });
+
+      if (!response.ok) {
+        const texto = await response.text();
+        throw new Error(`Erro na API: ${response.status} ${response.statusText} - ${texto.substring(0, 300)}`);
       }
-    });
 
-    if (!response.ok) {
-      console.error(`❌ Erro na API: ${response.status} ${response.statusText}`);
-      const texto = await response.text();
-      console.error('Resposta:', texto.substring(0, 300));
-      break;
+      return response.json();
+    } catch (erro) {
+      ultimoErro = erro;
+      console.error(`⚠️ Falha ao buscar ${url} (tentativa ${tentativa}/${tentativas}): ${erro.message}`);
+      if (tentativa < tentativas) await sleep(2000 * tentativa);
     }
+  }
 
-    const json = await response.json();
+  throw ultimoErro;
+}
+
+async function buscarTiposMateria() {
+  const url = `${API_BASE}/api/materia/tipomaterialegislativa/?page_size=200`;
+  const json = await fetchJsonComRetry(url);
+  const tipos = (json.results || []).filter(t => t.id);
+  console.log(`📚 Tipos de matéria encontrados: ${tipos.length}`);
+  return tipos;
+}
+
+async function buscarMateriaPorTipo(ano, tipo) {
+  let url = `${API_BASE}/api/materia/materialegislativa/?ano=${ano}&tipo=${tipo.id}&page=1&page_size=100`;
+  let pagina = 1;
+  let materias = [];
+
+  while (url) {
+    console.log(`📄 ${tipo.sigla || tipo.descricao || tipo.id} — página ${pagina}...`);
+    const json = await fetchJsonComRetry(url);
     const lista = json.results || [];
-    console.log(`   ${lista.length} matérias recebidas (total: ${json.count})`);
+    console.log(`   ${lista.length} matéria(s) recebida(s)`);
 
     if (lista.length === 0) break;
-    todasMateria = todasMateria.concat(lista);
 
-    // No dia a dia quase tudo já está visto — parar após pág 1 se não há novidades seria ideal,
-    // mas como não sabemos isso aqui, limitamos o backlog inicial a 5 páginas (500 matérias)
-    if (!json.next || pagina >= 5) break;
+    materias = materias.concat(lista);
+    url = normalizarUrlApi(json.pagination?.links?.next || json.next || '');
     pagina++;
   }
 
+  return materias;
+}
+
+async function buscarProposicoes() {
+  const hoje = new Date();
+  const ano = hoje.getFullYear();
+
+  console.log(`🔍 Buscando matérias de ${ano} por tipo...`);
+  const tipos = await buscarTiposMateria();
+  const porId = new Map();
+
+  for (const tipo of tipos) {
+    const materias = await buscarMateriaPorTipo(ano, tipo);
+    materias.forEach(materia => {
+      if (materia.id) porId.set(String(materia.id), materia);
+    });
+  }
+
+  const todasMateria = Array.from(porId.values());
   console.log(`📊 Total coletado: ${todasMateria.length}`);
   return todasMateria;
 }
@@ -200,6 +243,15 @@ function normalizarProposicao(p) {
 
   const novas = materia.filter(p => !idsVistos.has(p.id));
   console.log(`🆕 Matérias novas: ${novas.length}`);
+
+  if (BASELINE_ONLY) {
+    materia.forEach(p => idsVistos.add(p.id));
+    estado.proposicoes_vistas = Array.from(idsVistos);
+    estado.ultima_execucao = new Date().toISOString();
+    salvarEstado(estado);
+    console.log('🧱 Baseline atualizado. Nenhum email enviado.');
+    process.exit(0);
+  }
 
   if (novas.length > 0) {
     novas.sort((a, b) => {
