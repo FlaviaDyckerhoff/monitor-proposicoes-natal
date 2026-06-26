@@ -102,7 +102,7 @@ async function enviarEmail(novas) {
   await transporter.sendMail({
     from: `"Monitor Natal" <${EMAIL_REMETENTE}>`,
     to: EMAIL_DESTINO,
-    subject: `🏛️ Câmara Natal: ${novas.length} nova(s) matéria(s) — ${new Date().toLocaleDateString('pt-BR')}`,
+    subject: `🏛️ Natal: ${novas.length} nova(s) matéria(s) — ${new Date().toLocaleDateString('pt-BR')}`,
     html,
   });
 
