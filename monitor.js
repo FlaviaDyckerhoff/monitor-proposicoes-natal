@@ -53,6 +53,126 @@ function compararTiposEmail(a, b) {
 }
 
 
+const CLIENTES_NOMES_PROPRIOS = [
+  'FIRJAN', 'Red Bull', 'Sindicerv', 'Boticario',
+  'Boticário', 'Grupo Boticario', 'Grupo Boticário', 'O Boticario',
+  'O Boticário', 'Abrasel', 'Abrasel PB', 'Abrasel Paraíba',
+  'ANBRASEL', 'Ambev', 'Heineken', 'Abralatas',
+  'ABIR', 'Coca-Cola', 'Coca Cola', 'Coca-Cola Company',
+  'Femsa', 'Solar', 'Grupo Simões', 'Grupo Simoes',
+  'Andina', 'CVI', 'iFood', 'Zé Delivery',
+  'Ze Delivery', 'Verde Brasil', 'JCRIG', 'Associação dos Cemitérios e Crematórios do Brasil',
+  'Associacao dos Cemiterios e Crematorios do Brasil', 'Lalamove', 'Matrix', 'CVC',
+  'Rei do Pitaco', 'Maersk', 'Mac Jee', 'Norte Energia',
+  'Pacto Pela Fome', 'Sanofi', 'TikTok', 'Minalba',
+  'Esmaltec', 'Nacional Gás', 'Nacional Gas', 'Syngenta',
+  'Braskem', 'Ypê', 'Ype', 'VTal',
+  'V.tal', 'Grupo EPR', 'EPR', 'Natural Energia',
+  'DIAGEO', 'Alpargatas', 'Ternium', 'ABRADEE',
+  'Eletrobras', 'Eletrobrás', 'MeetKai', 'IPQ',
+  'Equatorial', 'EquatorialEnergia', 'Equatorial Energia', 'Equatorial Goiás',
+  'Equatorial Goias', 'Equatorial Goiás Distribuidora de Energia', 'Equatorial Goias Distribuidora de Energia', 'CEA Equatorial',
+  'CEA Equatorial Energia', 'Equtorial', 'Energisa', 'EnergisaLuz',
+  'Neoenergia', 'ENEL', 'Ampla Energia', 'SABESP',
+  'COMGAS', 'COMGÁS', 'AEGEA', 'Aegea Saneamento',
+  'Águas de Teresina', 'Aguas de Teresina', 'Águas de Timon', 'Aguas de Timon',
+  'Águas do Rio', 'Aguas do Rio', 'Águas do Rio 1', 'Águas do Rio 4',
+  'Naturgy', 'Agenersa', 'Regenera', 'Comlurb',
+  'Hekos', 'Orizon', 'Solvi', 'União Norte',
+  'Uniao Norte', 'Vital', 'Eletromidia', 'Eletromídia',
+  'AkzoNobel', 'Expedia', 'Hotels.com', 'Vrbo',
+  'RTSC', 'Gramado Parks', 'Grupo Wish', 'Huawei',
+  'Carrefour', 'Atacadão', 'Atacadao', 'Walmart',
+  "Sam's Club", 'Sams Club', 'JBS', 'Friboi',
+  'Seara', 'Swift', "Pilgrim's", 'Pilgrims',
+  'Wild Fork', 'Ajinomoto', 'Vibra', 'Vibra Energia',
+  'BR Distribuidora', 'Raízen', 'Raizen', 'Mindlab',
+  'ABVTEX', 'Semove', 'Barcas', 'Seta',
+  'Nova Infra', 'BRT'
+];
+
+function clientesCitadosNaProposicao(p) {
+  const texto = [p.cliente, p.clientes, p.autor, p.autores, p.tipo, p.rotulo, p.titulo, p.identificacao, p.ementa]
+    .filter(Boolean)
+    .join(' ');
+  const achados = [];
+  for (const nome of CLIENTES_NOMES_PROPRIOS) {
+    const escaped = nome.replace(/[.*+?^\${}()|[\]\\]/g, '\\$&');
+    const re = new RegExp('(^|[^A-Za-zÀ-ÿ0-9])' + escaped + '([^A-Za-zÀ-ÿ0-9]|$)', 'i');
+    if (re.test(texto) && !achados.some(a => a.toLowerCase() === nome.toLowerCase())) achados.push(nome);
+  }
+  return achados;
+}
+
+function anotarClientesCitados(proposicoes) {
+  for (const p of proposicoes || []) {
+    const clientes = clientesCitadosNaProposicao(p);
+    p.clientesCitados = clientes;
+    if (clientes.length && p.ementa && !(String(p.ementa).includes('Cliente citado:') || String(p.ementa).includes('CLIENTE CITADO:'))) {
+      p.ementa = String(p.ementa).trim() + ' | 🆘 CLIENTE CITADO: ' + clientes.join(', ');
+    }
+  }
+}
+
+function escapeHtml(valor) {
+  return String(valor ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function escapeRegExp(valor) {
+  return String(valor).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function destacarTermosCliente(texto, clientes) {
+  const nomes = Array.from(new Set([...(clientes || []), ...CLIENTES_NOMES_PROPRIOS]))
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length);
+  if (!nomes.length) return escapeHtml(texto);
+
+  const regex = new RegExp('(^|[^A-Za-zÀ-ÿ0-9])(' + nomes.map(escapeRegExp).join('|') + ')(?=[^A-Za-zÀ-ÿ0-9]|$)', 'gi');
+  return escapeHtml(texto).replace(regex, (match, prefixo, termo) => {
+    return prefixo + '<span style="background:#fff1f2;color:#991b1b;font-weight:800;border:1px solid #fecdd3;border-radius:3px;padding:1px 4px">' + termo + '</span>';
+  });
+}
+
+function renderizarEmenta(p) {
+  const texto = String(p.ementa || '-');
+  const partes = texto.split(/\s+\|\s+(?:🆘\s*)?CLIENTE CITADO:\s+|\s+\|\s+Cliente citado:\s+/i);
+  const ementa = destacarTermosCliente(partes[0], p.clientesCitados);
+  if (partes.length < 2) return ementa;
+
+  const clientes = partes.slice(1).join(' | 🆘 CLIENTE CITADO: ');
+  return ementa + '<div style="margin-top:6px">' +
+    '<span style="display:inline-block;background:#fff1f2;border:1px solid #fb7185;color:#991b1b;border-radius:999px;padding:4px 9px;font-size:11px;font-weight:900;text-transform:uppercase;letter-spacing:0">' +
+    '🆘 CLIENTE CITADO: ' + destacarTermosCliente(clientes, p.clientesCitados) +
+    '</span></div>';
+}
+
+
+function clientesCitadosResumoEmail(novas) {
+  const vistos = new Set();
+  const nomes = [];
+  for (const p of (novas || [])) {
+    for (const nome of (Array.isArray(p && p.clientesCitados) ? p.clientesCitados : [])) {
+      const key = String(nome).toLowerCase();
+      if (!vistos.has(key)) { vistos.add(key); nomes.push(nome); }
+    }
+  }
+  return nomes;
+}
+
+function assuntoEmailClienteCitado(novas, assuntoBase) {
+  const nomes = clientesCitadosResumoEmail(novas);
+  if (!nomes.length) return assuntoBase;
+  const lista = nomes.slice(0, 3).join(', ') + (nomes.length > 3 ? ' +' + (nomes.length - 3) : '');
+  const base = String(assuntoBase || '');
+  return base.startsWith('🆘') ? base : '🆘 Cliente citado: ' + lista + ' | ' + base;
+}
+
 function radar03Numero(p) {
   const numero = String(p?.numero ?? p?.numero_proposicao ?? p?.num ?? '').trim();
   const ano = String(p?.ano ?? p?.ano_proposicao ?? '').trim();
@@ -153,6 +273,8 @@ function radar03AgruparNovidades(novas) {
       ementa: String(p?.ementa || p?.resumo || p?.titulo || '').trim(),
       link: String(p?.link || p?.url || p?.fonte || p?.projeto_url || '').trim(),
       clienteSugestao: Array.isArray(p?.clientesCitados) ? p.clientesCitados.join(', ') : '',
+      clienteCitado: Array.isArray(p?.clientesCitados) && p.clientesCitados.length > 0,
+      clienteCitadoNomes: Array.isArray(p?.clientesCitados) ? p.clientesCitados.join(', ') : '',
     };
     let atual = porTipo.get(tipo);
     if (!atual) {
@@ -196,7 +318,7 @@ async function sincronizarRadar03(novas) {
     while (casa.week.length < 5) casa.week.push('off');
 
     resumo.forEach(rec => {
-      const detalhes = Array.isArray(rec.itens) && rec.itens.length ? rec.itens : [rec];
+      const detalhes = [rec];
       const existentesTipo = casa.items.filter(i => radar03TipoControle(i?.tipo || '') === rec.tipo);
       const baseAtual = existentesTipo.reduce((max, i) => {
         const n = Number.parseInt(String(i?.base || i?.mon || 0), 10) || 0;
@@ -224,6 +346,8 @@ async function sincronizarRadar03(novas) {
         item.ementa = det.ementa || item.ementa || '';
         item.link = det.link || item.link || '';
         item.clienteSugestao = det.clienteSugestao || item.clienteSugestao || '';
+        item.clienteCitado = Boolean(det.clienteCitado || item.clienteCitado);
+        item.clienteCitadoNomes = det.clienteCitadoNomes || item.clienteCitadoNomes || item.clienteSugestao || '';
         item.radar03Id = det.id || item.radar03Id || '';
         item.listaReal03 = true;
       });
@@ -254,7 +378,7 @@ async function sincronizarRadar03(novas) {
 function radar03ReviewUrl(novas) {
   const params = new URLSearchParams({
     casa: CASA_RADAR03,
-    bloco: radar03BlocoEmail(novas),
+    bloco: radar03AgruparNovidades(novas).map(item => item.tipo + ' ' + item.numero + (item.ano ? '/' + item.ano : '')).join(' | '),
     fonte: radar03PrimeiraFonte(novas),
   });
   return `${RADAR03_URL}?${params.toString()}`;
@@ -284,6 +408,7 @@ function renderRadar03EmailButton(novas) {
 
 
 async function enviarEmail(novas) {
+  anotarClientesCitados(novas);
   const nodemailer = require('nodemailer');
   const transporter = nodemailer.createTransport({
     service: 'gmail',
@@ -308,7 +433,7 @@ async function enviarEmail(novas) {
         <td style="padding:8px;border-bottom:1px solid #eee">${numero}</td>
         <td style="padding:8px;border-bottom:1px solid #eee;font-size:12px">${p.tipo || '-'}</td>
         <td style="padding:8px;border-bottom:1px solid #eee;font-size:12px;white-space:nowrap">${p.data || '-'}</td>
-        <td style="padding:8px;border-bottom:1px solid #eee;font-size:12px">${p.ementa || '-'}</td>
+        <td style="padding:8px;border-bottom:1px solid #eee;font-size:12px">${renderizarEmenta(p)}</td>
       </tr>`;
     }).join('');
     return header + rows;
@@ -341,7 +466,7 @@ async function enviarEmail(novas) {
   await transporter.sendMail({
     from: `"Monitor Natal" <${EMAIL_REMETENTE}>`,
     to: EMAIL_DESTINO,
-    subject: `🏛️ Natal: ${novas.length} nova(s) matéria(s) — ${new Date().toLocaleDateString('pt-BR')}`,
+    subject: assuntoEmailClienteCitado(novas, `🏛️ Natal: ${novas.length} nova(s) matéria(s) — ${new Date().toLocaleDateString('pt-BR')}`),
     html,
   });
 
